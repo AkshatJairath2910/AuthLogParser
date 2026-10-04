@@ -21,3 +21,6 @@ What I learned building this
 Regular expressions (re module) — the core tool used to match and extract structured fields (timestamp, PID, username, IP, port) from raw log lines using named capture groups
 Basics of argparse for building the command-line interface
 General Python fundamentals — file I/O, dictionaries, loops, and string handling
+
+
+Sample File is attached with which i tested this project
