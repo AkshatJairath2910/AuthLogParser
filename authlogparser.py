@@ -7,30 +7,32 @@ from datetime import datetime
 from pathlib import Path
 
 #regex patterns dictionary
+_TS = r"(?P<timestamp>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?)"
+
 PATTERNS = {
     "ssh_success": re.compile(
-        r"(?P<timestamp>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+\S+\s+"
+        _TS + r"\s+\S+\s+"
         r"sshd\[(?P<pid>\d+)\]:\s+Accepted\s+\S+\s+for\s+(?P<username>\S+)"
         r"\s+from\s+(?P<ip>[\d.]+)\s+port\s+(?P<port>\d+)"
     ),
     "ssh_failure": re.compile(
-        r"(?P<timestamp>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+\S+\s+"
+        _TS + r"\s+\S+\s+"
         r"sshd\[(?P<pid>\d+)\]:\s+Failed\s+\S+\s+for\s+(invalid user\s+)?"
         r"(?P<username>\S+)\s+from\s+(?P<ip>[\d.]+)\s+port\s+(?P<port>\d+)"
     ),
     "sudo": re.compile(
-        r"(?P<timestamp>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+\S+\s+"
+        _TS + r"\s+\S+\s+"
         r"sudo:\s+(?P<username>\S+)\s+:.*?COMMAND=(?P<command>.+)"
     ),
     "session_open": re.compile(
-        r"(?P<timestamp>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+\S+\s+"
-        r"sshd\[(?P<pid>\d+)\]:\s+pam_unix\(sshd:session\):\s+session opened"
-        r"\s+for user\s+(?P<username>\S+)"
+        _TS + r"\s+\S+\s+"
+        r"\S+?\[?\d*\]?:?\s*pam_unix\((?P<service>[\w-]+):session\):\s+session opened"
+        r"\s+for user\s+(?P<username>[\w.-]+)"
     ),
     "session_close": re.compile(
-        r"(?P<timestamp>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+\S+\s+"
-        r"sshd\[(?P<pid>\d+)\]:\s+pam_unix\(sshd:session\):\s+session closed"
-        r"\s+for user\s+(?P<username>\S+)"
+        _TS + r"\s+\S+\s+"
+        r"\S+?\[?\d*\]?:?\s*pam_unix\((?P<service>[\w-]+):session\):\s+session closed"
+        r"\s+for user\s+(?P<username>[\w.-]+)"
     ),
 }
 STATUS = {
@@ -78,13 +80,9 @@ def parse_log_file(filepath: str):
 
 3#function for summary
 def print_summary(events: list[dict]):
-    for e in events:
-        if e["status"]:
-            status_counter= Counter(e['status'])
-        if e.get("username"):
-            username_counter = Counter(e["username"])
-        if e.get("ip"):
-            ip_counter = Counter(e["ip"])
+    status_counter = Counter(e["status"] for e in events if e["status"])
+    username_counter = Counter(e["username"] for e in events if e.get("username"))
+    ip_counter = Counter(e["ip"] for e in events if e.get("ip"))
 
     total_attempts = status_counter.get("success", 0) + status_counter.get("failure", 0)
 
@@ -101,6 +99,17 @@ def print_summary(events: list[dict]):
     for ip, count in ip_counter.most_common(5):
         print(f"  {ip} {count}")
 
+def _parse_timestamp(text: str, current_year: int):
+    """Parse either classic syslog ('Jan 15 10:23:45') or ISO/journald
+    ('2026-10-04T08:09:28.230550+00:00') timestamp strings."""
+    try:
+        return datetime.strptime(f"{current_year} {text}", "%Y %b %d %H:%M:%S")
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 #brute force
 
@@ -111,12 +120,10 @@ def bruteforce(events: list[dict], threshold: int, window_seconds: int):
     for e in events:
         if e["status"] != "failure" or not e.get("ip") or not e.get("timestamp"):
             continue
-        try:
-            ts = datetime.strptime(f"{current_year} {e['timestamp']}", "%Y %b %d %H:%M:%S")
-        except ValueError:
+        ts = _parse_timestamp(e["timestamp"], current_year)
+        if ts is None:
             continue
         failures[e["ip"]].append(ts)
-
     print("\n--- Brute-force Detection ---")
     flagged_any = False
 
