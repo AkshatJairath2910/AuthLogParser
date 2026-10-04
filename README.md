@@ -47,7 +47,7 @@ Opens the log file, seeks to the end, and polls for newly appended lines, parsin
 - **General Python fundamentals** — file I/O, dictionaries, `Counter`/`defaultdict` from `collections`, `datetime` parsing and arithmetic, and writing structured CSV output
 
 ## Usage
-
+Test file attached which was used for testing
 ```bash
 # Basic run — prints the summary and runs brute-force detection
 python authlogparser.py auth.log
